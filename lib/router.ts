@@ -10,9 +10,13 @@
 //    only thing that writes the cache; a refusal never promotes anyone.
 //
 //  * Cooldowns. A model the gateway refuses (429, 5xx, network) sits out
-//    the next few routing rounds. The counter is a logical round number
-//    that ticks once per client request — never a wall clock — so a
-//    replay that sees the same answers makes the same choices.
+//    the next few routing rounds, on a graduated schedule: a 429 parks
+//    it longest (rate limits clear slowly), a network failure shortest,
+//    and every repeat refusal while it is still parked adds a round, up
+//    to a cap — a model that keeps refusing keeps waiting longer. The
+//    counter is a logical round number that ticks once per client
+//    request — never a wall clock — so a replay that sees the same
+//    answers makes the same choices.
 //
 // Ordering inside one request is fully deterministic: sticky pick first
 // (when it qualifies), then rating descending, then dial id ascending
@@ -73,6 +77,8 @@ export function kindKey(wire: string, streaming: boolean, needs: Needs): string 
 
 /** How far below the best rating a sticky pick may sit and still lead. */
 const STICKY_BAND_MILLI = 150;
+/** No cooldown, however a model behaves, ever exceeds this many rounds. */
+const MAX_COOLDOWN_ROUNDS = 6;
 
 interface CooldownNote {
   /** Routing rounds the model still has to sit out. */
@@ -132,10 +138,18 @@ export class StickyRouter {
     return [...head, ...tail];
   }
 
-  /** A refusal parks the model for a couple of rounds. */
-  noteRefusal(id: string): void {
+  /**
+   * A refusal parks the model on the graduated schedule: base rounds by
+   * refusal kind (429 longest, network shortest), plus one extra round
+   * per refusal already on its record, capped so a model always comes
+   * back eventually. `status` 0 means the call never got an answer.
+   */
+  noteRefusal(id: string, status: number): void {
     const prev = this.cooling.get(id);
-    this.cooling.set(id, { roundsLeft: 2, refusals: (prev?.refusals ?? 0) + 1 });
+    const prior = prev?.refusals ?? 0;
+    const base = status === 429 ? 3 : status >= 500 ? 2 : 1;
+    const roundsLeft = Math.min(base + prior, MAX_COOLDOWN_ROUNDS);
+    this.cooling.set(id, { roundsLeft, refusals: prior + 1 });
   }
 
   /** Only a served answer earns the sticky slot for its kind. */

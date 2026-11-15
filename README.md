@@ -22,8 +22,10 @@ beats quality by much, and only a successful answer can earn or refresh
 the slot. Everything else is ordered by the brief's ratings.
 
 When the gateway refuses a model — a 429, a 5xx, a connection that goes
-nowhere — that model is parked for a few rounds and the next candidate
-takes over. If a later candidate serves the prompt, the refusals it
+nowhere — that model is parked and the next candidate takes over. The
+parking is graduated: a 429 parks longest, a network failure shortest,
+and repeat refusals stretch the wait, so a flapping model stops eating
+attempts while a one-off blip barely costs a round. If a later candidate serves the prompt, the refusals it
 stepped over are reported on the `x-makefun-upstream-failures` response
 header. Cooldowns run on a logical round counter, not a clock, so the
 server behaves identically on a replay.

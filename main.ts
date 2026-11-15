@@ -190,7 +190,7 @@ async function serve(wire: Wire, body: Bag, res: ServerResponse): Promise<void> 
       upstream = await dialGateway(upstreamBody(wire, body, candidate.dialId));
     } catch (err) {
       failures.push({ status: 0, code: 'network_error', model: candidate.dialId });
-      router.noteRefusal(candidate.dialId);
+      router.noteRefusal(candidate.dialId, 0);
       lastStatus = 502;
       lastText = (err as Error).message;
       continue;
@@ -201,7 +201,7 @@ async function serve(wire: Wire, body: Bag, res: ServerResponse): Promise<void> 
       lastStatus = upstream.status;
       lastText = text;
       if (retryable(upstream.status)) {
-        router.noteRefusal(candidate.dialId);
+        router.noteRefusal(candidate.dialId, upstream.status);
         continue;
       }
       break; // A firm 4xx (bad request, unknown model): another model will not fix it.
